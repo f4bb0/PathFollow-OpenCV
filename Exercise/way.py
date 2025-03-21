@@ -6,7 +6,7 @@ import time
 class FrameProcessor:
     def __init__(self):
         self.frame = None
-        self.frame_lock = threading.Lock()
+        self.frame_lock = threading.RLock()
         self.corners = []
         self.running = True
         self.display_frame = None
@@ -20,24 +20,29 @@ class FrameProcessor:
         self.corners_outer = None
         self.corners_inner = None
         self.midpoints = None
-        self.draw_lock = threading.Lock()
-        self.coordinates_lock = threading.Lock()
+        self.draw_lock = threading.RLock()
+        self.coordinates_lock = threading.RLock()
         self.last_valid_midpoints = None  # Store last valid midpoints
         self.last_bright_center = None  # Add this to track changes in bright spot position
         self.bright_center_updated = False  # Replace Event with flag
-        self.bright_center_lock = threading.Lock()  # Add lock for flag access
+        self.bright_center_lock = threading.RLock()  # Add lock for flag access
         self.center_point = None  # Intersection of diagonals
         self.target_point = None  # Intersection of rotating line with quadrilateral
         self.angle = 0  # Current angle of rotating line
         self.angular_velocity = 10  # Degrees per second
 
     def update_frame(self, new_frame):
+        # Minimize critical section
+        warped = None
         with self.frame_lock:
             if self.perspective_matrix is not None and not self.is_setting_perspective:
                 warped = cv2.warpPerspective(new_frame, self.perspective_matrix, self.warped_size)
+            
+        if warped is not None:
+            with self.frame_lock:
                 self.frame = warped.copy()
-            else:
-                # Use full frame when setting perspective or no transform set
+        else:
+            with self.frame_lock:
                 self.frame = new_frame.copy()
 
     def get_frame(self):
@@ -178,8 +183,8 @@ class FrameProcessor:
                         new_center = (cx, cy)
                         
                         if new_center != self.bright_center:
-                            self.bright_center = new_center
                             with self.bright_center_lock:
+                                self.bright_center = new_center
                                 self.bright_center_updated = True
 
             time.sleep(0.03)  # ~30fps
@@ -196,21 +201,26 @@ class FrameProcessor:
                 time.sleep(0.03)
                 continue
 
-            display = frame.copy()
-            
+            # Create local copies of shared data
             with self.draw_lock:
-                # Draw corners if detected
-                if self.corners_outer is not None:
-                    cv2.drawContours(display, [self.corners_outer], -1, (0, 255, 0), 2)
-                if self.corners_inner is not None:
-                    cv2.drawContours(display, [self.corners_inner], -1, (255, 0, 0), 2)
-                # Draw midpoints
-                if self.midpoints is not None:
-                    for point in self.midpoints:
-                        cv2.circle(display, tuple(map(int, point)), 5, (0, 0, 255), -1)
-                # Draw bright spot
-                if self.bright_center is not None:
-                    cv2.circle(display, self.bright_center, 5, (255, 0, 0), -1)
+                corners_outer = self.corners_outer
+                corners_inner = self.corners_inner
+                midpoints = self.midpoints
+            
+            with self.bright_center_lock:
+                bright_center = self.bright_center
+
+            # Draw using local copies
+            display = frame.copy()
+            if corners_outer is not None:
+                cv2.drawContours(display, [corners_outer], -1, (0, 255, 0), 2)
+            if corners_inner is not None:
+                cv2.drawContours(display, [corners_inner], -1, (255, 0, 0), 2)
+            if midpoints is not None:
+                for point in midpoints:
+                    cv2.circle(display, tuple(map(int, point)), 5, (0, 0, 255), -1)
+            if bright_center is not None:
+                cv2.circle(display, bright_center, 5, (255, 0, 0), -1)
                 # Draw center point and target point
                 if self.center_point is not None:
                     cv2.circle(display, self.center_point, 5, (255, 255, 0), -1)
