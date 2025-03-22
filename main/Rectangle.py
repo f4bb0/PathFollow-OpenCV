@@ -2,6 +2,7 @@ import cv2
 import numpy as np
 import threading
 import time
+from pid import PIDController
 
 def nothing(x):
     pass
@@ -32,8 +33,10 @@ class FrameProcessor:
         self.center_point = None  # Intersection of diagonals
         self.target_point = None  # Intersection of rotating line with quadrilateral
         self.angle = 0  # Current angle of rotating line
-        self.angular_velocity = 10  # Degrees per second
+        self.angular_velocity = 40  # Degrees per second
         self.hsv_window_created = False  # Add flag for window creation
+        self.pid_controller = PIDController(kp=0.5, ki=0.0, kd=0.00)
+        self.forces = (0.0, 0.0)  # Store current force values
 
     def update_frame(self, new_frame):
         # Minimize critical section
@@ -241,7 +244,7 @@ class FrameProcessor:
             time.sleep(0.03)  # ~30fps
 
     def print_coordinates(self):
-        """Fourth thread for printing coordinates and calculating target point"""
+        """Fourth thread for calculating rotating ray intersection and PID control"""
         def cross_product(v1, v2):
             """计算二维向量叉积"""
             return v1[0] * v2[1] - v1[1] * v2[0]
@@ -265,7 +268,7 @@ class FrameProcessor:
             return (int(x), int(y))
 
         last_time = time.time()
-        self.angular_velocity = 10  # 度/秒
+        #self.angular_velocity = 10  # 度/秒
         
         while self.running:
             current_time = time.time()
@@ -336,6 +339,21 @@ class FrameProcessor:
                             print(f"Angle: {self.angle:.1f}°")
                             print(f"Target: ({intersection[0]}, {intersection[1]})")
                             break
+
+                    # Get bright spot position
+                    with self.bright_center_lock:
+                        bright_spot = self.bright_center
+                    
+                    # Compute PID control if we have both points
+                    if bright_spot and self.target_point:
+                        force_x, force_y = self.pid_controller.compute(
+                            self.target_point, 
+                            bright_spot
+                        )
+                        self.forces = (force_x, force_y)
+                        print(f"Target: {self.target_point}")
+                        print(f"Current: {bright_spot}")
+                        print(f"Forces: X={force_x:.1f}, Y={force_y:.1f}")
 
             time.sleep(0.03)  # ~30fps
 
