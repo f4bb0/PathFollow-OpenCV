@@ -3,6 +3,9 @@ import numpy as np
 import threading
 import time
 
+def nothing(x):
+    pass
+
 class FrameProcessor:
     def __init__(self):
         self.frame = None
@@ -30,6 +33,7 @@ class FrameProcessor:
         self.target_point = None  # Intersection of rotating line with quadrilateral
         self.angle = 0  # Current angle of rotating line
         self.angular_velocity = 10  # Degrees per second
+        self.hsv_window_created = False  # Add flag for window creation
 
     def update_frame(self, new_frame):
         # Minimize critical section
@@ -145,30 +149,32 @@ class FrameProcessor:
                 time.sleep(0.03)
                 continue
 
-            # Convert to grayscale
-            gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+            # Convert to HSV color space
+            hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
             
-            # 1. Apply CLAHE (Contrast Limited Adaptive Histogram Equalization)
-            clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8,8))
-            enhanced = clahe.apply(gray)
+            # Get trackbar values
+            h_min = cv2.getTrackbarPos('H_min', 'HSV Controls')
+            s_min = cv2.getTrackbarPos('S_min', 'HSV Controls')
+            v_min = cv2.getTrackbarPos('V_min', 'HSV Controls')
+            h_max = cv2.getTrackbarPos('H_max', 'HSV Controls')
+            s_max = cv2.getTrackbarPos('S_max', 'HSV Controls')
+            v_max = cv2.getTrackbarPos('V_max', 'HSV Controls')
             
-            # 2. Apply gamma correction
-            gamma = 0.5
-            lookUpTable = np.empty((1,256), np.uint8)
-            for i in range(256):
-                lookUpTable[0,i] = np.clip(pow(i / 255.0, gamma) * 255.0, 0, 255)
-            enhanced = cv2.LUT(enhanced, lookUpTable)
+            # Create mask using trackbar values
+            lower_red = np.array([h_min, s_min, v_min])
+            upper_red = np.array([h_max, s_max, v_max])
             
-            # 3. Apply Gaussian blur
-            blurred = cv2.GaussianBlur(enhanced, (5, 5), 0)
+            # Create mask
+            mask = cv2.inRange(hsv, lower_red, upper_red)
             
-            # 4. Adaptive thresholding with enhanced contrast
-            binary = cv2.adaptiveThreshold(blurred, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, 
-                                         cv2.THRESH_BINARY, 11, 2)
-
-            # Find contours of the bright regions
-            contours, _ = cv2.findContours(binary, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-
+            # Morphological operations to remove noise
+            kernel = np.ones((5, 5), np.uint8)
+            mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel)
+            mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)
+            
+            # Find contours
+            contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+            
             if contours:
                 # Filter contours by area to remove noise
                 valid_contours = [cnt for cnt in contours if cv2.contourArea(cnt) > 2]
@@ -363,6 +369,15 @@ def mouse_callback(event, x, y, flags, param):
 def main():
     cap = cv2.VideoCapture(2)
     processor = FrameProcessor()
+
+    # Create HSV control window and trackbars
+    cv2.namedWindow('HSV Controls')
+    cv2.createTrackbar('H_min', 'HSV Controls', 0, 180, nothing)
+    cv2.createTrackbar('S_min', 'HSV Controls', 0, 255, nothing)
+    cv2.createTrackbar('V_min', 'HSV Controls', 200, 255, nothing)
+    cv2.createTrackbar('H_max', 'HSV Controls', 180, 180, nothing)
+    cv2.createTrackbar('S_max', 'HSV Controls', 30, 255, nothing)
+    cv2.createTrackbar('V_max', 'HSV Controls', 255, 255, nothing)
 
     # Start all processing threads
     corner_thread = threading.Thread(target=processor.process_corners)
