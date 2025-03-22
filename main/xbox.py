@@ -1,6 +1,7 @@
 import pygame
 import sys
 import time
+from uart import UARTHandler  # Add UART import
 
 class XboxController:
     def __init__(self):
@@ -16,6 +17,7 @@ class XboxController:
             
         self.controller = pygame.joystick.Joystick(0)
         self.controller.init()
+        self.uart = UARTHandler()  # Add UART handler
         
     def read_input(self):
         pygame.event.pump()
@@ -25,6 +27,13 @@ class XboxController:
         left_y = round(self.controller.get_axis(1), 2)
         right_x = round(self.controller.get_axis(4), 2)
         right_y = round(self.controller.get_axis(3), 2)
+        
+        # Convert right stick values to forces (-100 to 100)
+        force_x = int(right_x * 100)
+        force_y = int(right_y * 100)
+        
+        # Send forces through UART
+        self.uart.send_forces(force_x, force_y)
         
         # Read trigger values
         lt = round((self.controller.get_axis(2) + 1) / 2, 2)
@@ -48,6 +57,10 @@ class XboxController:
             }
         }
 
+    def __del__(self):  # Add destructor
+        if hasattr(self, 'uart'):
+            self.uart.close()
+
 if __name__ == "__main__":
     try:
         controller = XboxController()
@@ -56,6 +69,7 @@ if __name__ == "__main__":
         while True:
             data = controller.read_input()
             print(f"\rSticks: L{data['left_stick']}, R{data['right_stick']} | "
+                  f"Forces: X:{int(data['right_stick'][0]*100)}, Y:{int(data['right_stick'][1]*100)} | "
                   f"Triggers: LT:{data['triggers'][0]:.2f}, RT:{data['triggers'][1]:.2f} | "
                   f"Buttons: {data['buttons']}", end='')
             time.sleep(0.1)

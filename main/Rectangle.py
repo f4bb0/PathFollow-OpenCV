@@ -3,6 +3,7 @@ import numpy as np
 import threading
 import time
 from pid import PIDController
+from uart import UARTHandler  # Add this import at top
 
 def nothing(x):
     pass
@@ -37,6 +38,7 @@ class FrameProcessor:
         self.hsv_window_created = False  # Add flag for window creation
         self.pid_controller = PIDController(kp=0.5, ki=0.0, kd=0.00)
         self.forces = (0.0, 0.0)  # Store current force values
+        self.uart = UARTHandler()  # Add UART handler
 
     def update_frame(self, new_frame):
         # Minimize critical section
@@ -354,8 +356,13 @@ class FrameProcessor:
                         print(f"Target: {self.target_point}")
                         print(f"Current: {bright_spot}")
                         print(f"Forces: X={force_x:.1f}, Y={force_y:.1f}")
+                        self.uart.send_forces(force_x, force_y)  # Add this line
 
             time.sleep(0.03)  # ~30fps
+
+    def __del__(self):  # Add destructor
+        if hasattr(self, 'uart'):
+            self.uart.close()
 
 def mouse_callback(event, x, y, flags, param):
     processor = param

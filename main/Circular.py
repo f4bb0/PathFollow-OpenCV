@@ -3,6 +3,7 @@ import numpy as np
 import threading
 import time
 from pid import PIDController  # Add this import at the top
+from uart import UARTHandler  # Add this import at top
 
 def nothing(x):
     pass
@@ -40,6 +41,7 @@ class FrameProcessor:
         self.angular_velocity = 10  # Degrees per second
         self.hsv_window_created = False  # Add flag for window creation
         self.pid_controller = PIDController(kp=1.0, ki=0.1, kd=0.05)  # Add PID controller
+        self.uart = UARTHandler()  # Add UART handler
 
     def update_frame(self, new_frame):
         # Minimize critical section
@@ -313,10 +315,15 @@ class FrameProcessor:
                     print(f"Target: {self.target_point}")
                     print(f"Current: {bright_spot}")
                     print(f"Control forces - X: {force_x:.2f}, Y: {force_y:.2f}")
+                    self.uart.send_forces(force_x, force_y)  # Add this line
                 else:
                     self.pid_controller.reset()  # Reset PID when points are not available
 
             time.sleep(0.03)  # ~30fps
+
+    def __del__(self):  # Add destructor
+        if hasattr(self, 'uart'):
+            self.uart.close()
 
 def mouse_callback(event, x, y, flags, param):
     processor = param
