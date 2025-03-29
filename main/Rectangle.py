@@ -39,6 +39,8 @@ class FrameProcessor:
         self.pid_controller = PIDController(kp=0.5, ki=0.0, kd=0.00)
         self.forces = (0.0, 0.0)  # Store current force values
         self.uart = UARTHandler()  # Add UART handler
+        self.target_locked = False  # Add this line after other initializations
+        self.forces_locked = False  # Add this line after other initializations
 
     def update_frame(self, new_frame):
         # Minimize critical section
@@ -153,10 +155,11 @@ class FrameProcessor:
             if frame is None:
                 time.sleep(0.03)
                 continue
-
+            frame1= cv2.GaussianBlur(frame, (5, 5), 0)  # Apply Gaussian blur to reduce noise
             # Convert to HSV color space
-            hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
-            
+            hsv = cv2.cvtColor(frame1, cv2.COLOR_BGR2HSV)
+      #      cv2.imshow('HSV Controls', hsv)  # Show HSV image for debugging
+        #    cv2.waitKey(1)  # Add this line to allow window to update
             # Get trackbar values
             h_min = cv2.getTrackbarPos('H_min', 'HSV Controls')
             s_min = cv2.getTrackbarPos('S_min', 'HSV Controls')
@@ -172,11 +175,14 @@ class FrameProcessor:
             # Create mask
             mask = cv2.inRange(hsv, lower_red, upper_red)
             
+            # Apply Gaussian blur to mask
             # Morphological operations to remove noise
             kernel = np.ones((5, 5), np.uint8)
-            mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel)
+
+           # mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel)
             mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)
-            
+  #          cv2.imshow('mask', mask)  # Show mask for debugging
+
             # Find contours
             contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
             
@@ -337,9 +343,10 @@ class FrameProcessor:
                         )
                         
                         if intersection:
-                            self.target_point = intersection
+                            if not self.target_locked:
+                                self.target_point = intersection
                             print(f"Angle: {self.angle:.1f}°")
-                            print(f"Target: ({intersection[0]}, {intersection[1]})")
+                            print(f"Target: ({self.target_point[0]}, {self.target_point[1]})")
                             break
 
                     # Get bright spot position
@@ -348,10 +355,14 @@ class FrameProcessor:
                     
                     # Compute PID control if we have both points
                     if bright_spot and self.target_point:
-                        force_x, force_y = self.pid_controller.compute(
-                            self.target_point, 
-                            bright_spot
-                        )
+                        if not self.forces_locked:
+                            force_x, force_y = self.pid_controller.compute(
+                                self.target_point, 
+                                bright_spot
+                            )
+                        else:
+                            force_x, force_y = 0.0, 0.0
+                        
                         self.forces = (force_x, force_y)
                         print(f"Target: {self.target_point}")
                         print(f"Current: {bright_spot}")
@@ -392,7 +403,7 @@ def mouse_callback(event, x, y, flags, param):
         processor.display_frame = frame_copy
 
 def main():
-    cap = cv2.VideoCapture(2)
+    cap = cv2.VideoCapture(0)
     processor = FrameProcessor()
 
     # Create HSV control window and trackbars
@@ -440,6 +451,19 @@ def main():
                 processor.perspective_points = []
                 processor.paused = False  # Resume processing
                 print("已重置透视变换")
+            elif key == ord('l') or key == ord('L'):
+                processor.target_locked = not processor.target_locked
+                if processor.target_locked:
+                    processor.target_point = (200, 200)
+                    print("Target locked at (200, 200)")
+                else:
+                    print("Target unlocked")
+            elif key == ord('s') or key == ord('S'):
+                processor.forces_locked = not processor.forces_locked
+                if processor.forces_locked:
+                    print("Forces locked at (0, 0)")
+                else:
+                    print("Forces unlocked")
 
             if processor.is_setting_perspective:
                 # Keep using the same frame while setting points
@@ -451,7 +475,36 @@ def main():
             
             display = processor.display_frame if processor.display_frame is not None else frame
             cv2.imshow('Camera Feed', display)
+
+
+
+            frame1= cv2.GaussianBlur(frame, (5, 5), 0)  # Apply Gaussian blur to reduce noise
+            # Convert to HSV color space
+            hsv = cv2.cvtColor(frame1, cv2.COLOR_BGR2HSV)
+      #      cv2.imshow('HSV Controls', hsv)  # Show HSV image for debugging
+        #    cv2.waitKey(1)  # Add this line to allow window to update
+            # Get trackbar values
+            h_min = cv2.getTrackbarPos('H_min', 'HSV Controls')
+            s_min = cv2.getTrackbarPos('S_min', 'HSV Controls')
+            v_min = cv2.getTrackbarPos('V_min', 'HSV Controls')
+            h_max = cv2.getTrackbarPos('H_max', 'HSV Controls')
+            s_max = cv2.getTrackbarPos('S_max', 'HSV Controls')
+            v_max = cv2.getTrackbarPos('V_max', 'HSV Controls')
             
+            # Create mask using trackbar values
+            lower_red = np.array([h_min, s_min, v_min])
+            upper_red = np.array([h_max, s_max, v_max])
+            
+            # Create mask
+            mask = cv2.inRange(hsv, lower_red, upper_red)
+            
+            # Apply Gaussian blur to mask
+            # Morphological operations to remove noise
+            kernel = np.ones((5, 5), np.uint8)
+
+           # mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel)
+            mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)
+            cv2.imshow('mask', mask)
             if key == ord('q'):
                 break
     finally:

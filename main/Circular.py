@@ -42,6 +42,7 @@ class FrameProcessor:
         self.hsv_window_created = False  # Add flag for window creation
         self.pid_controller = PIDController(kp=1.0, ki=0.1, kd=0.05)  # Add PID controller
         self.uart = UARTHandler()  # Add UART handler
+        self.forces_locked = False  # Add this line for force lock status
 
     def update_frame(self, new_frame):
         # Minimize critical section
@@ -308,10 +309,13 @@ class FrameProcessor:
 
                 # Calculate PID control if we have both target and current position
                 if self.target_point is not None and bright_spot is not None:
-                    force_x, force_y = self.pid_controller.compute(
-                        self.target_point, 
-                        bright_spot
-                    )
+                    if not self.forces_locked:
+                        force_x, force_y = self.pid_controller.compute(
+                            self.target_point, 
+                            bright_spot
+                        )
+                    else:
+                        force_x, force_y = 0.0, 0.0
                     print(f"Target: {self.target_point}")
                     print(f"Current: {bright_spot}")
                     print(f"Control forces - X: {force_x:.2f}, Y: {force_y:.2f}")
@@ -401,6 +405,12 @@ def main():
                 processor.perspective_points = []
                 processor.paused = False  # Resume processing
                 print("已重置透视变换")
+            elif key == ord('s') or key == ord('S'):
+                processor.forces_locked = not processor.forces_locked
+                if processor.forces_locked:
+                    print("Forces locked at (0, 0)")
+                else:
+                    print("Forces unlocked")
 
             if processor.is_setting_perspective:
                 # Keep using the same frame while setting points
